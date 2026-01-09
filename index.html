@@ -3172,6 +3172,729 @@ ${window.location.href}`;
         let blitzes = [];
 
         // ============================================
+        // SISTEMA DE AUTENTICAÇÃO E USUÁRIOS
+        // ============================================
+
+// ============================================
+// SISTEMA COMPLETO DE AUTENTICAÇÃO E USUÁRIOS
+// ============================================
+
+// Estado do usuário logado
+let currentUser = {
+    id: null,
+    name: '',
+    email: '',
+    level: 'free', // free, premium, vip, moderator, admin
+    status: 'active',
+    avatar: null,
+    registeredAt: null,
+    lastLogin: null,
+    blitzesRegistered: 0,
+    blitzesLimit: 10 // free = 10, premium = 100, vip = unlimited
+};
+
+// Banco de dados local de usuários (simulação)
+let usersDatabase = [];
+
+// Carregar usuários do localStorage
+function loadUsersFromStorage() {
+    const stored = localStorage.getItem('blitzBH_users');
+    if (stored) {
+        try {
+            usersDatabase = JSON.parse(stored);
+        } catch (e) {
+            usersDatabase = [];
+        }
+    }
+    
+    // Criar admin padrão se não existir
+    if (usersDatabase.length === 0) {
+        usersDatabase.push({
+            id: generateUserId(),
+            name: 'Administrador',
+            email: 'admin@blitzbh.com',
+            password: hashPassword('admin123'), // Em produção, usar bcrypt
+            level: 'admin',
+            status: 'active',
+            avatar: null,
+            registeredAt: new Date().toISOString(),
+            lastLogin: null,
+            blitzesRegistered: 0,
+            blitzesLimit: -1 // unlimited
+        });
+        saveUsersToStorage();
+    }
+}
+
+// Salvar usuários no localStorage
+function saveUsersToStorage() {
+    localStorage.setItem('blitzBH_users', JSON.stringify(usersDatabase));
+}
+
+// Gerar ID único
+function generateUserId() {
+    return 'user_' + Date.now() + '_' + Math.random().toString(36).substr(2, 9);
+}
+
+// Hash simples de senha (em produção usar bcrypt)
+function hashPassword(password) {
+    // Simulação de hash - em produção usar biblioteca adequada
+    let hash = 0;
+    for (let i = 0; i < password.length; i++) {
+        const char = password.charCodeAt(i);
+        hash = ((hash << 5) - hash) + char;
+        hash = hash & hash;
+    }
+    return 'hash_' + Math.abs(hash).toString(36);
+}
+
+// Verificar senha
+function verifyPassword(password, hash) {
+    return hashPassword(password) === hash;
+}
+
+// ============================================
+// TELA DE LOGIN
+// ============================================
+
+function showLoginScreen() {
+    // Verificar se já está logado
+    const savedSession = localStorage.getItem('blitzBH_session');
+    if (savedSession) {
+        try {
+            const session = JSON.parse(savedSession);
+            const user = usersDatabase.find(u => u.id === session.userId);
+            if (user && session.expires > Date.now()) {
+                loginUser(user);
+                return;
+            }
+        } catch (e) {
+            // Sessão inválida, continuar para login
+        }
+    }
+    
+    const loginHTML = `
+        <div id="loginScreen" style="
+            position: fixed;
+            top: 0;
+            left: 0;
+            width: 100%;
+            height: 100%;
+            background: var(--bg-body);
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            z-index: 10000;
+            overflow-y: auto;
+            padding: 20px;
+        ">
+            <div style="
+                background: var(--bg-card);
+                border-radius: 25px;
+                box-shadow: var(--shadow-xl);
+                max-width: 450px;
+                width: 100%;
+                padding: 40px 30px;
+            ">
+                <!-- Logo e Título -->
+                <div style="text-align: center; margin-bottom: 30px;">
+                    <div style="font-size: 64px; margin-bottom: 15px;">🚨</div>
+                    <h1 style="color: var(--primary); font-size: 32px; margin-bottom: 10px; font-weight: 900;">
+                        Blitz BH
+                    </h1>
+                    <p style="color: var(--text-secondary); font-size: 14px;">
+                        Sistema Colaborativo de Alertas
+                    </p>
+                </div>
+                
+                <!-- Formulário de Login -->
+                <form id="loginForm" onsubmit="handleLogin(event)">
+                    <div style="margin-bottom: 20px;">
+                        <label style="display: block; margin-bottom: 8px; color: var(--text-primary); font-weight: 700; font-size: 14px;">
+                            <i class="fas fa-envelope"></i> Email
+                        </label>
+                        <input 
+                            type="email" 
+                            id="loginEmail" 
+                            required 
+                            placeholder="seu@email.com"
+                            style="
+                                width: 100%;
+                                padding: 15px;
+                                border: 2px solid var(--border-color);
+                                border-radius: 12px;
+                                font-size: 16px;
+                                background: var(--bg-input);
+                                color: var(--text-primary);
+                                transition: all 0.3s;
+                            "
+                            onfocus="this.style.borderColor='var(--primary)'"
+                            onblur="this.style.borderColor='var(--border-color)'"
+                        >
+                    </div>
+                    
+                    <div style="margin-bottom: 25px;">
+                        <label style="display: block; margin-bottom: 8px; color: var(--text-primary); font-weight: 700; font-size: 14px;">
+                            <i class="fas fa-lock"></i> Senha
+                        </label>
+                        <div style="position: relative;">
+                            <input 
+                                type="password" 
+                                id="loginPassword" 
+                                required 
+                                placeholder="••••••••"
+                                style="
+                                    width: 100%;
+                                    padding: 15px;
+                                    padding-right: 50px;
+                                    border: 2px solid var(--border-color);
+                                    border-radius: 12px;
+                                    font-size: 16px;
+                                    background: var(--bg-input);
+                                    color: var(--text-primary);
+                                    transition: all 0.3s;
+                                "
+                                onfocus="this.style.borderColor='var(--primary)'"
+                                onblur="this.style.borderColor='var(--border-color)'"
+                            >
+                            <button 
+                                type="button" 
+                                onclick="togglePasswordVisibility('loginPassword')"
+                                style="
+                                    position: absolute;
+                                    right: 15px;
+                                    top: 50%;
+                                    transform: translateY(-50%);
+                                    background: none;
+                                    border: none;
+                                    color: var(--text-secondary);
+                                    cursor: pointer;
+                                    font-size: 18px;
+                                "
+                            >
+                                <i class="fas fa-eye" id="loginPasswordIcon"></i>
+                            </button>
+                        </div>
+                    </div>
+                    
+                    <button 
+                        type="submit" 
+                        style="
+                            width: 100%;
+                            padding: 16px;
+                            background: var(--gradient-primary);
+                            color: white;
+                            border: none;
+                            border-radius: 12px;
+                            font-size: 16px;
+                            font-weight: 700;
+                            cursor: pointer;
+                            transition: all 0.3s;
+                            box-shadow: 0 4px 15px rgba(102, 126, 234, 0.4);
+                        "
+                        onmouseover="this.style.transform='translateY(-2px)'; this.style.boxShadow='0 6px 20px rgba(102, 126, 234, 0.6)'"
+                        onmouseout="this.style.transform='translateY(0)'; this.style.boxShadow='0 4px 15px rgba(102, 126, 234, 0.4)'"
+                    >
+                        <i class="fas fa-sign-in-alt"></i> Entrar
+                    </button>
+                </form>
+                
+                <!-- Links -->
+                <div style="margin-top: 25px; text-align: center;">
+                    <p style="color: var(--text-secondary); font-size: 14px; margin-bottom: 15px;">
+                        Não tem uma conta?
+                    </p>
+                    <button 
+                        onclick="showRegisterScreen()"
+                        style="
+                            background: none;
+                            border: 2px solid var(--primary);
+                            color: var(--primary);
+                            padding: 12px 30px;
+                            border-radius: 12px;
+                            font-weight: 700;
+                            cursor: pointer;
+                            transition: all 0.3s;
+                        "
+                        onmouseover="this.style.background='var(--primary)'; this.style.color='white'"
+                        onmouseout="this.style.background='none'; this.style.color='var(--primary)'"
+                    >
+                        <i class="fas fa-user-plus"></i> Criar Conta
+                    </button>
+                </div>
+                
+                <!-- Acesso Rápido (Para testes) -->
+                <div style="margin-top: 30px; padding-top: 20px; border-top: 2px solid var(--border-color);">
+                    <p style="color: var(--text-secondary); font-size: 12px; text-align: center; margin-bottom: 10px;">
+                        Acesso rápido (demo):
+                    </p>
+                    <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 8px; font-size: 11px;">
+                        <button onclick="quickLogin('admin')" style="padding: 8px; background: #e74c3c; color: white; border: none; border-radius: 8px; cursor: pointer; font-weight: 700;">
+                            👑 Admin
+                        </button>
+                        <button onclick="quickLogin('moderator')" style="padding: 8px; background: #f39c12; color: white; border: none; border-radius: 8px; cursor: pointer; font-weight: 700;">
+                            ⭐ Moderador
+                        </button>
+                        <button onclick="quickLogin('premium')" style="padding: 8px; background: #9b59b6; color: white; border: none; border-radius: 8px; cursor: pointer; font-weight: 700;">
+                            💎 Premium
+                        </button>
+                        <button onclick="quickLogin('free')" style="padding: 8px; background: #95a5a6; color: white; border: none; border-radius: 8px; cursor: pointer; font-weight: 700;">
+                            👤 Gratuito
+                        </button>
+                    </div>
+                </div>
+            </div>
+        </div>
+    `;
+    
+    document.body.insertAdjacentHTML('beforeend', loginHTML);
+    
+    // Focar no campo de email
+    setTimeout(() => {
+        document.getElementById('loginEmail')?.focus();
+    }, 100);
+}
+
+// ============================================
+// TELA DE CADASTRO
+// ============================================
+
+function showRegisterScreen() {
+    document.getElementById('loginScreen')?.remove();
+    
+    const registerHTML = `
+        <div id="registerScreen" style="
+            position: fixed;
+            top: 0;
+            left: 0;
+            width: 100%;
+            height: 100%;
+            background: var(--bg-body);
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            z-index: 10000;
+            overflow-y: auto;
+            padding: 20px;
+        ">
+            <div style="
+                background: var(--bg-card);
+                border-radius: 25px;
+                box-shadow: var(--shadow-xl);
+                max-width: 500px;
+                width: 100%;
+                padding: 40px 30px;
+            ">
+                <!-- Header -->
+                <div style="text-align: center; margin-bottom: 30px;">
+                    <button 
+                        onclick="showLoginScreen(); document.getElementById('registerScreen').remove();"
+                        style="
+                            position: absolute;
+                            top: 20px;
+                            left: 20px;
+                            background: var(--bg-hover);
+                            border: none;
+                            width: 40px;
+                            height: 40px;
+                            border-radius: 50%;
+                            cursor: pointer;
+                            font-size: 20px;
+                            color: var(--text-primary);
+                        "
+                    >
+                        <i class="fas fa-arrow-left"></i>
+                    </button>
+                    
+                    <div style="font-size: 48px; margin-bottom: 15px;">✨</div>
+                    <h2 style="color: var(--primary); font-size: 28px; margin-bottom: 10px; font-weight: 900;">
+                        Criar Conta
+                    </h2>
+                    <p style="color: var(--text-secondary); font-size: 14px;">
+                        Junte-se à comunidade Blitz BH
+                    </p>
+                </div>
+                
+                <!-- Formulário -->
+                <form id="registerForm" onsubmit="handleRegister(event)">
+                    <div style="margin-bottom: 20px;">
+                        <label style="display: block; margin-bottom: 8px; color: var(--text-primary); font-weight: 700; font-size: 14px;">
+                            <i class="fas fa-user"></i> Nome Completo
+                        </label>
+                        <input 
+                            type="text" 
+                            id="registerName" 
+                            required 
+                            minlength="3"
+                            placeholder="João Silva"
+                            style="
+                                width: 100%;
+                                padding: 15px;
+                                border: 2px solid var(--border-color);
+                                border-radius: 12px;
+                                font-size: 16px;
+                                background: var(--bg-input);
+                                color: var(--text-primary);
+                            "
+                        >
+                    </div>
+                    
+                    <div style="margin-bottom: 20px;">
+                        <label style="display: block; margin-bottom: 8px; color: var(--text-primary); font-weight: 700; font-size: 14px;">
+                            <i class="fas fa-envelope"></i> Email
+                        </label>
+                        <input 
+                            type="email" 
+                            id="registerEmail" 
+                            required 
+                            placeholder="seu@email.com"
+                            style="
+                                width: 100%;
+                                padding: 15px;
+                                border: 2px solid var(--border-color);
+                                border-radius: 12px;
+                                font-size: 16px;
+                                background: var(--bg-input);
+                                color: var(--text-primary);
+                            "
+                        >
+                    </div>
+                    
+                    <div style="margin-bottom: 20px;">
+                        <label style="display: block; margin-bottom: 8px; color: var(--text-primary); font-weight: 700; font-size: 14px;">
+                            <i class="fas fa-lock"></i> Senha
+                        </label>
+                        <input 
+                            type="password" 
+                            id="registerPassword" 
+                            required 
+                            minlength="6"
+                            placeholder="Mínimo 6 caracteres"
+                            style="
+                                width: 100%;
+                                padding: 15px;
+                                border: 2px solid var(--border-color);
+                                border-radius: 12px;
+                                font-size: 16px;
+                                background: var(--bg-input);
+                                color: var(--text-primary);
+                            "
+                        >
+                    </div>
+                    
+                    <div style="margin-bottom: 25px;">
+                        <label style="display: block; margin-bottom: 8px; color: var(--text-primary); font-weight: 700; font-size: 14px;">
+                            <i class="fas fa-lock"></i> Confirmar Senha
+                        </label>
+                        <input 
+                            type="password" 
+                            id="registerPasswordConfirm" 
+                            required 
+                            minlength="6"
+                            placeholder="Digite a senha novamente"
+                            style="
+                                width: 100%;
+                                padding: 15px;
+                                border: 2px solid var(--border-color);
+                                border-radius: 12px;
+                                font-size: 16px;
+                                background: var(--bg-input);
+                                color: var(--text-primary);
+                            "
+                        >
+                    </div>
+                    
+                    <div style="margin-bottom: 25px;">
+                        <label style="display: flex; align-items: center; gap: 10px; cursor: pointer;">
+                            <input type="checkbox" required style="width: 18px; height: 18px; cursor: pointer;">
+                            <span style="color: var(--text-secondary); font-size: 13px;">
+                                Aceito os <a href="#" style="color: var(--primary); text-decoration: none; font-weight: 700;">Termos de Uso</a> e <a href="#" style="color: var(--primary); text-decoration: none; font-weight: 700;">Política de Privacidade</a>
+                            </span>
+                        </label>
+                    </div>
+                    
+                    <button 
+                        type="submit" 
+                        style="
+                            width: 100%;
+                            padding: 16px;
+                            background: var(--gradient-primary);
+                            color: white;
+                            border: none;
+                            border-radius: 12px;
+                            font-size: 16px;
+                            font-weight: 700;
+                            cursor: pointer;
+                            transition: all 0.3s;
+                            box-shadow: 0 4px 15px rgba(102, 126, 234, 0.4);
+                        "
+                    >
+                        <i class="fas fa-user-plus"></i> Criar Conta
+                    </button>
+                </form>
+            </div>
+        </div>
+    `;
+    
+    document.body.insertAdjacentHTML('beforeend', registerHTML);
+}
+
+// ============================================
+// HANDLERS
+// ============================================
+
+function handleLogin(event) {
+    event.preventDefault();
+    
+    const email = document.getElementById('loginEmail').value.trim();
+    const password = document.getElementById('loginPassword').value;
+    
+    const user = usersDatabase.find(u => u.email === email);
+    
+    if (!user) {
+        showToast('❌ Email não encontrado', 'error');
+        return;
+    }
+    
+    if (!verifyPassword(password, user.password)) {
+        showToast('❌ Senha incorreta', 'error');
+        return;
+    }
+    
+    if (user.status === 'banned') {
+        showToast('🚫 Usuário banido', 'error');
+        return;
+    }
+    
+    if (user.status === 'suspended') {
+        showToast('⚠️ Conta suspensa temporariamente', 'warning');
+        return;
+    }
+    
+    loginUser(user);
+}
+
+function handleRegister(event) {
+    event.preventDefault();
+    
+    const name = document.getElementById('registerName').value.trim();
+    const email = document.getElementById('registerEmail').value.trim();
+    const password = document.getElementById('registerPassword').value;
+    const passwordConfirm = document.getElementById('registerPasswordConfirm').value;
+    
+    // Validações
+    if (password !== passwordConfirm) {
+        showToast('❌ As senhas não coincidem', 'error');
+        return;
+    }
+    
+    if (usersDatabase.find(u => u.email === email)) {
+        showToast('❌ Email já cadastrado', 'error');
+        return;
+    }
+    
+    // Criar novo usuário
+    const newUser = {
+        id: generateUserId(),
+        name: name,
+        email: email,
+        password: hashPassword(password),
+        level: 'free',
+        status: 'active',
+        avatar: null,
+        registeredAt: new Date().toISOString(),
+        lastLogin: null,
+        blitzesRegistered: 0,
+        blitzesLimit: 10
+    };
+    
+    usersDatabase.push(newUser);
+    saveUsersToStorage();
+    
+    showToast('✅ Conta criada com sucesso!', 'success');
+    
+    // Auto login
+    setTimeout(() => {
+        loginUser(newUser);
+    }, 1000);
+}
+
+function loginUser(user) {
+    // Atualizar último login
+    user.lastLogin = new Date().toISOString();
+    saveUsersToStorage();
+    
+    // Definir usuário atual
+    currentUser = {
+        id: user.id,
+        name: user.name,
+        email: user.email,
+        level: user.level,
+        status: user.status,
+        avatar: user.avatar,
+        registeredAt: user.registeredAt,
+        lastLogin: user.lastLogin,
+        blitzesRegistered: user.blitzesRegistered,
+        blitzesLimit: user.blitzesLimit
+    };
+    
+    // Salvar sessão
+    const session = {
+        userId: user.id,
+        expires: Date.now() + (7 * 24 * 60 * 60 * 1000) // 7 dias
+    };
+    localStorage.setItem('blitzBH_session', JSON.stringify(session));
+    
+    // Remover telas de login/registro
+    document.getElementById('loginScreen')?.remove();
+    document.getElementById('registerScreen')?.remove();
+    
+    // Atualizar interface
+    updateUserInterface();
+    
+    showToast(`👋 Bem-vindo, ${user.name}!`, 'success');
+}
+
+function logoutUser() {
+    if (confirm('Deseja realmente sair?')) {
+        currentUser = {
+            id: null,
+            name: '',
+            email: '',
+            level: 'free',
+            status: 'active',
+            avatar: null,
+            registeredAt: null,
+            lastLogin: null,
+            blitzesRegistered: 0,
+            blitzesLimit: 10
+        };
+        
+        localStorage.removeItem('blitzBH_session');
+        
+        showToast('👋 Até logo!', 'info');
+        
+        setTimeout(() => {
+            location.reload();
+        }, 1000);
+    }
+}
+
+function quickLogin(level) {
+    const testUsers = {
+        admin: usersDatabase.find(u => u.level === 'admin'),
+        moderator: { email: 'moderador@blitzbh.com', password: 'mod123', level: 'moderator' },
+        premium: { email: 'premium@blitzbh.com', password: 'premium123', level: 'premium' },
+        free: { email: 'usuario@blitzbh.com', password: 'user123', level: 'free' }
+    };
+    
+    let user = testUsers[level];
+    
+    // Criar usuário teste se não existir
+    if (!user && level !== 'admin') {
+        user = {
+            id: generateUserId(),
+            name: level.charAt(0).toUpperCase() + level.slice(1),
+            email: testUsers[level].email,
+            password: hashPassword(testUsers[level].password),
+            level: level,
+            status: 'active',
+            avatar: null,
+            registeredAt: new Date().toISOString(),
+            lastLogin: null,
+            blitzesRegistered: 0,
+            blitzesLimit: level === 'free' ? 10 : (level === 'premium' ? 100 : -1)
+        };
+        usersDatabase.push(user);
+        saveUsersToStorage();
+    }
+    
+    if (user) {
+        loginUser(user);
+    }
+}
+
+function togglePasswordVisibility(inputId) {
+    const input = document.getElementById(inputId);
+    const icon = document.getElementById(inputId + 'Icon');
+    
+    if (input.type === 'password') {
+        input.type = 'text';
+        icon.className = 'fas fa-eye-slash';
+    } else {
+        input.type = 'password';
+        icon.className = 'fas fa-eye';
+    }
+}
+
+function updateUserInterface() {
+    // Atualizar botões do header com info do usuário
+    const levelBadges = {
+        free: { icon: '👤', text: 'Gratuito', color: '#95a5a6' },
+        premium: { icon: '💎', text: 'Premium', color: '#9b59b6' },
+        vip: { icon: '👑', text: 'VIP', color: '#f39c12' },
+        moderator: { icon: '⭐', text: 'Moderador', color: '#f39c12' },
+        admin: { icon: '👑', text: 'Admin', color: '#e74c3c' }
+    };
+    
+    const badge = levelBadges[currentUser.level] || levelBadges.free;
+    
+    // Adicionar botão de perfil
+    const upgradeBtn = document.getElementById('upgradeBtn');
+    if (upgradeBtn && currentUser.id) {
+        upgradeBtn.innerHTML = `
+            <span>${badge.icon}</span>
+            <span>${currentUser.name}</span>
+        `;
+        upgradeBtn.style.background = badge.color;
+        upgradeBtn.onclick = showUserProfile;
+    }
+}
+
+function showUserProfile() {
+    alert(`Perfil: ${currentUser.name}\nNível: ${currentUser.level}\nEmail: ${currentUser.email}\n\n(Painel de perfil completo em desenvolvimento)`);
+}
+
+// Inicializar sistema de usuários
+function initUserSystem() {
+    loadUsersFromStorage();
+    
+    // Verificar se tem sessão ativa
+    const savedSession = localStorage.getItem('blitzBH_session');
+    if (savedSession) {
+        try {
+            const session = JSON.parse(savedSession);
+            if (session.expires > Date.now()) {
+                const user = usersDatabase.find(u => u.id === session.userId);
+                if (user) {
+                    currentUser = {
+                        id: user.id,
+                        name: user.name,
+                        email: user.email,
+                        level: user.level,
+                        status: user.status,
+                        avatar: user.avatar,
+                        registeredAt: user.registeredAt,
+                        lastLogin: user.lastLogin,
+                        blitzesRegistered: user.blitzesRegistered,
+                        blitzesLimit: user.blitzesLimit
+                    };
+                    updateUserInterface();
+                    console.log('✅ Sessão restaurada:', currentUser.name);
+                    return;
+                }
+            }
+        } catch (e) {
+            // Sessão inválida
+        }
+    }
+    
+    // Sem sessão válida, mostrar login
+    showLoginScreen();
+}
+
+
+        // ============================================
         // SISTEMA EXPANDIDO - INTEGRADO
         // ============================================
 
@@ -5696,6 +6419,9 @@ Blitz BH - Sistema Colaborativo
 
         // Inicialização
         window.addEventListener('load', () => {
+            // Inicializar sistema de usuários PRIMEIRO
+            initUserSystem();
+            
             initMap();
             loadFromLocalStorage();
             addSampleData();
